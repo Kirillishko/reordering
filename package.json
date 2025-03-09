@@ -2,14 +2,23 @@
   "name": "reordering",
   "displayName": "Reordering",
   "description": "Extension for reordering parameters and arguments.",
-  "version": "0.0.1",
+  "icon": "images/Logo.png",
+  "publisher": "Kirillishko",
+  "version": "1.0.3",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kirillishko/reordering"
+  },
   "engines": {
     "vscode": "^1.98.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:reordering.reorderToLeft",
+    "onCommand:reordering.reorderToRight"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "keybindings": [
@@ -36,9 +45,11 @@
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "my-test": "mocha --require ts-node/register src/*.test.ts"
   },
   "devDependencies": {
+    "@types/chai": "^5.2.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
     "@types/vscode": "^1.98.0",
@@ -46,10 +57,13 @@
     "@typescript-eslint/parser": "^8.25.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
+    "chai": "^5.2.0",
     "eslint": "^9.21.0",
+    "mocha": "^11.1.0",
     "terser-webpack-plugin": "^5.3.14",
     "ts-loader": "^9.5.2",
     "typescript": "^5.7.3",
+    "vscode-test": "^1.6.1",
     "webpack": "^5.98.0",
     "webpack-cli": "^6.0.1"
   }

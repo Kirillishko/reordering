@@ -1,39 +1,29 @@
-import * as vscode from 'vscode';
+import { commands, ExtensionContext } from 'vscode';
 import {
+  Direction,
   extractArguments,
   replaceArguments,
   swapArguments
 } from './lib/helpers';
 
-export const activate = (context: vscode.ExtensionContext) => {
-  const reorderToLeft = vscode.commands.registerCommand(
-    'reordering.reorderToLeft',
-    () => {
-      const { args, argIndex } = extractArguments();
-      const swappedArgs = swapArguments(args, argIndex, 'left');
+export const activate = (context: ExtensionContext) => {
+  const reorder = (direction: Direction) => {
+    const { args, argIndex } = extractArguments();
 
-      if (!swappedArgs.length) {
-        return;
-      }
-
-      replaceArguments(swappedArgs);
+    if (argIndex === -1) {
+      return;
     }
+
+    const swappedArgs = swapArguments([...args], argIndex, direction);
+    replaceArguments(swappedArgs, argIndex, direction);
+  };
+
+  context.subscriptions.push(
+    commands.registerCommand('reordering.reorderToLeft', () => reorder('left'))
   );
-
-  const reorderToRight = vscode.commands.registerCommand(
-    'reordering.reorderToRight',
-    () => {
-      const { args, argIndex } = extractArguments();
-      const swappedArgs = swapArguments(args, argIndex, 'right');
-
-      if (!swappedArgs.length) {
-        return;
-      }
-
-      replaceArguments(swappedArgs);
-    }
+  context.subscriptions.push(
+    commands.registerCommand('reordering.reorderToRight', () =>
+      reorder('right')
+    )
   );
-
-  context.subscriptions.push(reorderToLeft);
-  context.subscriptions.push(reorderToRight);
 };

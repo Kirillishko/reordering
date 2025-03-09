@@ -1,252 +1,202 @@
-import { Range, window } from 'vscode';
+import { Position, Range, Selection, window } from 'vscode';
 
-type Arg = { value: string; start: number; end: number };
+const LEFT_SCOPE_SYMBOLS = ['(', '{', '['];
+const RIGHT_SCOPE_SYMBOLS = [')', '}', ']'];
+const SEPARATORS = [',', ';'];
+const QUOTE_SYMBOLS = [`'`, '"', '`'];
+
+export type Arg = { value: string; start: number; end: number };
+export type Direction = 'left' | 'right';
 
 export const findNearestBlock = (
   text: string,
-  cursor: number,
-  open: string,
-  close: string
-): {
-  content: string;
-  start: number;
-  end: number;
-} | null => {
-  let start = cursor;
-  let end = cursor;
-  let depth = 0;
-
-  while (start >= 0) {
-    const char = text[start];
-
-    if (char === close && depth === 0) {
-      break;
-    }
-
-    if (char === open && depth === 0) {
-      start++;
-      break;
-    }
-
-    if (char === close) {
-      depth--;
-    }
-
-    if (char === open) {
-      depth++;
-    }
-
-    start--;
-  }
-
-  while (end < text.length) {
-    const char = text[end];
-
-    if (char === open && depth === 0) {
-      break;
-    }
-
-    if (char === close && depth === 0) {
-      break;
-    }
-
-    if (char === close) {
-      depth--;
-    }
-
-    if (char === open) {
-      depth++;
-    }
-
-    end++;
-  }
-
-  if (start === -1 || end === -1 || start >= end) {
+  cursor: number
+): { content: string; start: number; end: number } | null => {
+  if (!text.length || cursor >= text.length) {
     return null;
   }
 
-  const content = text.substring(start, end);
-  return { content, start, end };
-};
+  let leftIndex = cursor,
+    rightIndex = cursor;
+  let leftDepth = 0,
+    rightDepth = 0;
+  let leftFound = false,
+    rightFound = false;
 
-export const splitArgumentsWithSeparators = (
-  text: string,
-  blockStart: number
-): {
-  args: Arg[];
-} => {
-  let args: Arg[] = [];
-  let current = '';
-  let depth = 0;
-  let inQuotes = false;
-  let quoteChar = '';
-  let separator = '';
-  let argStart = -1;
-
-  for (let i = 0; i < text.length; i++) {
-    let char = text[i];
-
-    if (argStart === -1 && char.match(/[a-zA-Z0-9'"`]/)) {
-      argStart = blockStart + i;
+  while (!(leftFound && rightFound)) {
+    if (leftIndex <= 0 || rightIndex >= text.length) {
+      return null;
     }
 
-    if ((char === ',' || char === ';') && depth === 0 && !inQuotes) {
+    if (!leftFound) {
+      const leftChar = text[--leftIndex];
+      if (LEFT_SCOPE_SYMBOLS.includes(leftChar)) {
+        leftDepth === 0 ? (leftFound = true) : leftDepth--;
+      }
+      if (RIGHT_SCOPE_SYMBOLS.includes(leftChar)) {
+        leftDepth++;
+      }
+    }
+
+    if (!rightFound) {
+      const rightChar = text[rightIndex++];
+      if (RIGHT_SCOPE_SYMBOLS.includes(rightChar)) {
+        rightDepth === 0 ? (rightFound = true) : rightDepth--;
+      }
+      if (LEFT_SCOPE_SYMBOLS.includes(rightChar)) {
+        rightDepth++;
+      }
+    }
+  }
+
+  return leftIndex < rightIndex
+    ? {
+        content: text.substring(++leftIndex, --rightIndex),
+        start: leftIndex,
+        end: rightIndex
+      }
+    : null;
+};
+
+export const splitArguments = (text: string, blockStart: number): Arg[] => {
+  let args: Arg[] = [];
+  let current = '',
+    depth = 0,
+    inQuotes = false,
+    quoteChar = '',
+    argStart = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (argStart === -1 && /[^,;\s]/.test(char)) {
+      argStart = blockStart + i;
+    }
+    if (SEPARATORS.includes(char) && depth === 0 && !inQuotes) {
       args.push({
         value: current.trim(),
         start: argStart,
         end: blockStart + i
       });
       current = '';
-      separator = '';
       argStart = -1;
       continue;
     }
-
-    if (char === '\n' && depth === 0 && !inQuotes) {
-      separator += char;
-      continue;
+    if (QUOTE_SYMBOLS.includes(char) && (i === 0 || text[i - 1] !== '\\')) {
+      inQuotes = inQuotes ? char !== quoteChar : ((quoteChar = char), true);
     }
-
-    if (
-      (char === '"' || char === "'" || char === '`') &&
-      (i === 0 || text[i - 1] !== '\\')
-    ) {
-      if (!inQuotes) {
-        inQuotes = true;
-        quoteChar = char;
-      } else if (char === quoteChar) {
-        inQuotes = false;
-      }
-    }
-
-    if ((char === '{' || char === '(') && !inQuotes) {
+    if (LEFT_SCOPE_SYMBOLS.includes(char) && !inQuotes) {
       depth++;
     }
-
-    if ((char === '}' || char === ')') && !inQuotes) {
+    if (RIGHT_SCOPE_SYMBOLS.includes(char) && !inQuotes) {
       depth--;
     }
-
     if (argStart !== -1) {
       current += char;
     }
   }
 
-  const remainder = current.trim();
-
-  if (remainder) {
+  if (current.trim()) {
     args.push({
-      value: remainder,
+      value: current.trim(),
       start: argStart,
-      end: argStart + remainder.length
+      end: argStart + current.trim().length
     });
   }
-
-  return { args };
+  return args;
 };
 
-export const findCurrentArgument = (args: Arg[], cursor: number): number => {
-  let result = -1;
+export const findCurrentArgument = (args: Arg[], cursor: number): number =>
+  args.findIndex(({ start, end }) => cursor >= start && cursor <= end);
 
-  for (let i = 0; i < args.length; i++) {
-    let { start, end } = args[i];
-
-    if (cursor >= start && cursor <= end) {
-      result = i;
-      break;
-    }
-  }
-
-  return result;
-};
-
-export const extractArguments = (): {
-  args: Arg[];
-  argIndex: number;
-} => {
+export const extractArguments = (): { args: Arg[]; argIndex: number } => {
   const editor = window.activeTextEditor;
+
   if (!editor) {
-    return {
-      args: [],
-      argIndex: -1
-    };
+    return { args: [], argIndex: -1 };
   }
 
-  const document = editor.document;
-  const selection = editor.selection;
+  const { document, selection } = editor;
   const position = selection.active;
   const text = document.getText();
   const offset = document.offsetAt(position);
-
-  const matchObject = findNearestBlock(text, offset, '{', '}');
-  const matchArgs = findNearestBlock(text, offset, '(', ')');
-
-  const block =
-    matchObject && matchArgs
-      ? matchObject.content.length > matchArgs.content.length
-        ? matchArgs
-        : matchObject
-      : matchObject || matchArgs;
+  const block = findNearestBlock(text, offset);
 
   if (!block) {
-    window.showInformationMessage('Не найдено подходящего блока {} или ()');
-
-    return {
-      args: [],
-      argIndex: -1
-    };
+    return { args: [], argIndex: -1 };
   }
 
-  const { content, start } = block;
-  const { args } = splitArgumentsWithSeparators(content, start);
-  const argIndex = findCurrentArgument(args, offset);
-
-  return { args, argIndex };
+  const args = splitArguments(block.content, block.start);
+  return { args, argIndex: findCurrentArgument(args, offset) };
 };
 
 export const swapArguments = (
-  arr: Arg[],
-  argIndex: number,
-  direction: 'left' | 'right'
-) => {
-  if (argIndex < 0 || argIndex >= arr.length) {
-    return [];
+  args: Arg[],
+  index: number,
+  direction: Direction
+): Arg[] => {
+  if (
+    index < 0 ||
+    index >= args.length ||
+    (direction === 'left' && index === 0) ||
+    (direction === 'right' && index === args.length - 1)
+  ) {
+    return args;
   }
 
-  const newArr = [...arr];
+  const swapped = [...args];
+  const targetIndex = index + (direction === 'left' ? -1 : 1);
 
-  if (direction === 'left') {
-    if (argIndex <= 0) {
-      return [];
-    }
+  [swapped[index].value, swapped[targetIndex].value] = [
+    swapped[targetIndex].value,
+    swapped[index].value
+  ];
 
-    newArr[argIndex] = {
-      ...newArr[argIndex],
-      value: newArr[argIndex - 1].value
-    };
-    newArr[argIndex - 1] = {
-      ...newArr[argIndex - 1],
-      value: arr[argIndex].value
-    };
-  } else if (direction === 'right') {
-    if (argIndex >= arr.length - 1) {
-      return [];
-    }
-
-    newArr[argIndex] = {
-      ...newArr[argIndex],
-      value: newArr[argIndex + 1].value
-    };
-    newArr[argIndex + 1] = {
-      ...newArr[argIndex + 1],
-      value: arr[argIndex].value
-    };
-  }
-
-  return newArr;
+  return swapped;
 };
 
-export const replaceArguments = (args: Arg[]) => {
+export const findNewCursorPositionToRight = (line: string, pos: number) => {
+  let currentPos = pos;
+  let newCursorOffset = -1;
+  let depth = 0;
+  let quoteChar: string | null = null;
+
+  while (currentPos - 50 <= pos) {
+    const char = line[currentPos];
+
+    if (!quoteChar) {
+      if (RIGHT_SCOPE_SYMBOLS.includes(char)) {
+        depth++;
+      }
+      if (LEFT_SCOPE_SYMBOLS.includes(char)) {
+        depth--;
+      }
+    }
+
+    if (QUOTE_SYMBOLS.includes(char)) {
+      if (quoteChar === char) {
+        quoteChar = null;
+      } else if (!quoteChar) {
+        quoteChar = char;
+      }
+    }
+
+    if (!quoteChar && depth === 0 && SEPARATORS.includes(char)) {
+      currentPos += 2;
+      newCursorOffset = currentPos;
+      break;
+    }
+
+    currentPos++;
+  }
+
+  return newCursorOffset;
+};
+
+export const replaceArguments = (
+  args: Arg[],
+  argIndex: number,
+  direction: Direction
+) => {
   const editor = window.activeTextEditor;
 
   if (!editor) {
@@ -254,17 +204,52 @@ export const replaceArguments = (args: Arg[]) => {
   }
 
   const document = editor.document;
+  const newArgIndex = argIndex + (direction === 'left' ? -1 : 1);
 
-  editor.edit((editBuilder) => {
-    for (let i = 0; i < args.length; i++) {
-      let { value, start, end } = args[i];
+  let prevLineIndex = -1;
+  let newLineIndex = -1;
 
-      const range = new Range(
-        document.positionAt(start),
-        document.positionAt(end)
-      );
+  let prevPosition: Position | null = null;
+  let newPosition: Position | null = null;
 
-      editBuilder.replace(range, value);
-    }
-  });
+  editor
+    .edit((editBuilder) => {
+      args.forEach(({ value, start, end }, index) => {
+        const range = new Range(
+          document.positionAt(start),
+          document.positionAt(end)
+        );
+
+        if (argIndex === index) {
+          prevLineIndex = range.end.line;
+          prevPosition = document.positionAt(start);
+        }
+
+        if (newArgIndex === index) {
+          newLineIndex = range.end.line;
+          newPosition = document.positionAt(start);
+        }
+
+        editBuilder.replace(range, value);
+      });
+    })
+    .then(() => {
+      if (
+        newArgIndex >= 0 &&
+        newArgIndex < args.length &&
+        prevPosition &&
+        newPosition
+      ) {
+        const onSameLine = prevLineIndex === newLineIndex;
+
+        if (direction === 'right' && onSameLine) {
+          const text = document.getText();
+          const prevOffset = document.offsetAt(prevPosition);
+          const newOffset = findNewCursorPositionToRight(text, prevOffset);
+          newPosition = document.positionAt(newOffset);
+        }
+
+        editor.selection = new Selection(newPosition, newPosition);
+      }
+    });
 };
