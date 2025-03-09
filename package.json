@@ -4,7 +4,7 @@
   "description": "Extension for reordering parameters and arguments.",
   "icon": "images/Logo.png",
   "publisher": "Kirillishko",
-  "version": "1.0.3",
+  "version": "1.1.1",
   "repository": {
     "type": "git",
     "url": "https://github.com/Kirillishko/reordering"
